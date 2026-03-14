@@ -1,0 +1,13 @@
+monai
+SimpleITK
+nibabel
+pydicom
+mlflow
+fastapi
+uvicorn
+onnx
+onnxruntime
+hydra-core
+numpy
+scipy
+scikit-image
