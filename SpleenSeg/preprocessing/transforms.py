@@ -36,7 +36,8 @@ def build_preprocessing_transforms(config: PreprocessConfig) -> Compose:
     Notes:
       - We use RAS orientation for consistency across cases.
       - We resample to uniform spacing with bilinear (image) / nearest (label).
-      - We crop to the foreground region (from image) then pad/crop to roi_size.
+            - We crop to the foreground region (from label) then pad/crop to roi_size.
+                This ensures the fixed-size ROI actually contains the target anatomy.
     """
 
     keys = ["image", "label"]
@@ -58,7 +59,7 @@ def build_preprocessing_transforms(config: PreprocessConfig) -> Compose:
                 b_max=1.0,
                 clip=True,
             ),
-            CropForegroundd(keys=keys, source_key="image"),
+            CropForegroundd(keys=keys, source_key="label"),
             ResizeWithPadOrCropd(keys=keys, spatial_size=config.roi_size),
             EnsureTyped(keys=keys, dtype=(np.float32, np.uint8)),
         ]
