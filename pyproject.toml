@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "SpleenSeg"
+version = "0.1.0"
+description = "Production-style 2.5D CT spleen segmentation pipeline (MSD Decathlon Task09_Spleen)"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    # NOTE: Install PyTorch separately first with the correct CUDA version:
+    #   https://pytorch.org/get-started/locally/
+    # monai pulls in torch as a dependency.
+    "monai",
+    "nibabel",
+    "numpy",
+    "matplotlib",
+    "tqdm",
+    "mlflow",
+    "onnx",
+    "onnxruntime",
+]
+
+[tool.setuptools.packages.find]
+include = ["SpleenSeg*"]

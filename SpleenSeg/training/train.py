@@ -10,11 +10,10 @@ import numpy as np
 import torch
 from monai.losses import DiceLoss
 from monai.metrics import DiceMetric
-from monai.networks.layers import Norm
-from monai.networks.nets import UNet
 from monai.transforms import AsDiscrete, Compose, EnsureType, Activations
 from torch.utils.data import DataLoader
 
+from SpleenSeg.model import build_unet_2d
 from SpleenSeg.preprocessing.transforms import PreprocessConfig
 from SpleenSeg.training.dataset_25d import DecathlonSpleen25DDataset, Slice25DConfig
 
@@ -217,15 +216,7 @@ def main() -> None:
         persistent_workers=persistent_workers,
     )
     
-    model = UNet(
-        spatial_dims=2,
-        in_channels=int(args.num_slices),
-        out_channels=1,
-        channels=(16, 32, 64, 128, 256),
-        strides=(2, 2, 2, 2),
-        num_res_units=2,
-        norm=Norm.BATCH,
-    ).to(device)
+    model = build_unet_2d(num_slices=int(args.num_slices)).to(device)
 
     loss_fn = DiceLoss(sigmoid=True, squared_pred=True, reduction="mean")
     optimizer = torch.optim.AdamW(model.parameters(), lr=float(args.lr), weight_decay=float(args.weight_decay))

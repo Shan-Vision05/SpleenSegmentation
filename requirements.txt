@@ -1,15 +1,11 @@
+# NOTE: Install PyTorch first with the correct CUDA version:
+#   https://pytorch.org/get-started/locally/
+# monai pulls in torch as a transitive dependency.
 monai
-SimpleITK
 nibabel
-pydicom
-mlflow
-fastapi
-uvicorn
-onnx
-onnxruntime
-hydra-core
 numpy
-scipy
-scikit-image
 matplotlib
 tqdm
+mlflow
+onnx
+onnxruntime

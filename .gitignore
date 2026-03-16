@@ -74,6 +74,9 @@ artifacts/
 mlruns/
 data_processed/
 
+# Local cluster run dumps (downloaded, not committed)
+spleen_run_dump/
+
 # MLflow local backend store (SQLite)
 mlflow.db
 

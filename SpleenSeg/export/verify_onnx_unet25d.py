@@ -2,50 +2,11 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import torch
-from monai.networks.layers import Norm
-from monai.networks.nets import UNet
 
-
-def _infer_num_slices_and_hw_from_ckpt(ckpt: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
-    num_slices = None
-    h = None
-    w = None
-
-    args = ckpt.get("args")
-    if isinstance(args, dict):
-        slice_cfg = args.get("slice")
-        if isinstance(slice_cfg, dict) and "num_slices" in slice_cfg:
-            try:
-                num_slices = int(slice_cfg["num_slices"])
-            except Exception:
-                pass
-
-        pre_cfg = args.get("preprocess")
-        if isinstance(pre_cfg, dict) and "roi_size" in pre_cfg:
-            roi = pre_cfg["roi_size"]
-            try:
-                h = int(roi[0])
-                w = int(roi[1])
-            except Exception:
-                pass
-
-    return num_slices, h, w
-
-
-def _build_unet(num_slices: int) -> torch.nn.Module:
-    return UNet(
-        spatial_dims=2,
-        in_channels=int(num_slices),
-        out_channels=1,
-        channels=(16, 32, 64, 128, 256),
-        strides=(2, 2, 2, 2),
-        num_res_units=2,
-        norm=Norm.BATCH,
-    )
+from SpleenSeg.model import build_unet_2d, read_ckpt_meta
 
 
 def main() -> None:
@@ -71,11 +32,12 @@ def main() -> None:
         raise FileNotFoundError(f"Missing checkpoint: {args.ckpt}")
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=False)
-    inferred_slices, inferred_h, inferred_w = _infer_num_slices_and_hw_from_ckpt(ckpt)
+    meta = read_ckpt_meta(ckpt)
+    roi = meta["roi_size"]
 
-    num_slices = int(args.num_slices) if int(args.num_slices) > 0 else inferred_slices
-    height = int(args.height) if int(args.height) > 0 else inferred_h
-    width = int(args.width) if int(args.width) > 0 else inferred_w
+    num_slices = int(args.num_slices) if int(args.num_slices) > 0 else meta["num_slices"]
+    height = int(args.height) if int(args.height) > 0 else (roi[0] if roi else None)
+    width = int(args.width) if int(args.width) > 0 else (roi[1] if roi else None)
 
     if num_slices is None:
         raise ValueError("Could not infer --num-slices from checkpoint; pass --num-slices")
@@ -86,7 +48,7 @@ def main() -> None:
     torch.manual_seed(int(args.seed))
     np.random.seed(int(args.seed))
 
-    model = _build_unet(num_slices=num_slices)
+    model = build_unet_2d(num_slices=num_slices)
     model.load_state_dict(ckpt["model_state"], strict=True)
     model.eval()
 
