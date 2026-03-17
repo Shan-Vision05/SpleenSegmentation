@@ -1,0 +1,7 @@
+# Local dev overrides — automatically merged by `docker compose up`.
+# NOT used in production (the VPS runs docker compose -f docker-compose.yml explicitly).
+services:
+  spleenseg:
+    network_mode: host
+    networks: {}   # clear the portfolio_web network (doesn't exist locally)
+    labels: {}     # clear Traefik labels (no Traefik locally)

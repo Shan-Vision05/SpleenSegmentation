@@ -6,7 +6,6 @@ services:
       dockerfile: Dockerfile
       network: host
     restart: unless-stopped
-    network_mode: host
     environment:
       ONNX_MODEL_PATH: /models/unet25d.onnx
       SAMPLES_DIR: /samples
@@ -21,3 +20,21 @@ services:
       - ./samples:/samples:ro
     tmpfs:
       - /results
+    labels:
+      - "traefik.enable=true"
+      # Route all traffic under /spleenseg/ to this container
+      - "traefik.http.routers.spleenseg.rule=Host(`${DOMAIN}`,`www.${DOMAIN}`) && PathPrefix(`/spleenseg`)"
+      - "traefik.http.routers.spleenseg.entrypoints=websecure"
+      - "traefik.http.routers.spleenseg.tls.certresolver=myresolver"
+      # Strip the /spleenseg prefix before forwarding to FastAPI
+      - "traefik.http.middlewares.spleenseg-strip.stripprefix.prefixes=/spleenseg"
+      - "traefik.http.routers.spleenseg.middlewares=spleenseg-strip"
+      - "traefik.http.services.spleenseg.loadbalancer.server.port=8000"
+      # HTTP → HTTPS redirect (same middleware as portfolio)
+      - "traefik.http.routers.spleenseg-http.rule=Host(`${DOMAIN}`,`www.${DOMAIN}`)) && PathPrefix(`/spleenseg`)"
+      - "traefik.http.routers.spleenseg-http.entrypoints=web"
+      - "traefik.http.routers.spleenseg-http.middlewares=redirect-to-https"
+    networks:
+networks:
+  portfolio_web:
+    external: true   # already created by the portfolio compose project
