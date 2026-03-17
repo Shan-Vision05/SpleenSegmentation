@@ -100,3 +100,8 @@ mlflow.db
 # Requested: ignore this dataset folder
 Task09_Spleen/
 /samples
+
+# AWS/IAM credential exports
+dvc-user_accessKeys.csv
+*_accessKeys.csv
+*.csv
