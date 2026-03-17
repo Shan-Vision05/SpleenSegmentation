@@ -1,0 +1,5 @@
+outs:
+- md5: 1b3684feed297fe559c6918fb2c63389
+  size: 6529454
+  hash: md5
+  path: unet25d.onnx
