@@ -13,11 +13,6 @@ services:
       NUM_SLICES: "5"
       THRESHOLD: "0.5"
       ROOT_PATH: ${ROOT_PATH:-}
-    volumes:
-      # Model — baked into the image; override here for local dev without rebuild
-      - ./models:/models:ro
-      # Sample cases — populated by `dvc pull` before the container starts
-      - ./samples:/samples:ro
     tmpfs:
       - /results
     labels:
@@ -31,7 +26,7 @@ services:
       - "traefik.http.routers.spleenseg.middlewares=spleenseg-strip"
       - "traefik.http.services.spleenseg.loadbalancer.server.port=8000"
       # HTTP → HTTPS redirect (same middleware as portfolio)
-      - "traefik.http.routers.spleenseg-http.rule=Host(`${DOMAIN}`,`www.${DOMAIN}`)) && PathPrefix(`/spleenseg`)"
+      - "traefik.http.routers.spleenseg-http.rule=Host(`${DOMAIN}`,`www.${DOMAIN}`) && PathPrefix(`/spleenseg`)"
       - "traefik.http.routers.spleenseg-http.entrypoints=web"
       - "traefik.http.routers.spleenseg-http.middlewares=redirect-to-https"
     networks:

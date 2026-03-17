@@ -19,17 +19,15 @@ COPY pyproject.toml .
 COPY SpleenSeg/ ./SpleenSeg/
 ENV PYTHONPATH=/app
 
-# Bake the ONNX model into the image
+# Bake the ONNX model and sample cases into the image
 COPY spleen_run_dump/onnx/unet25d.onnx /models/unet25d.onnx
+COPY samples/ /samples/
 
 # Runtime configuration — all can be overridden in docker-compose / docker run
 ENV ONNX_MODEL_PATH=/models/unet25d.onnx \
     SAMPLES_DIR=/samples \
     RESULTS_DIR=/results \
     ROOT_PATH=""
-
-# /samples (read-only dataset) and /results (outputs) are expected as bind mounts
-VOLUME ["/samples", "/results"]
 
 EXPOSE 8000
 
