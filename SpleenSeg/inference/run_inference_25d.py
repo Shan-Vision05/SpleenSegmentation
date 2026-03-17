@@ -81,32 +81,165 @@ def _save_nifti(path: Path, vol_xyz: np.ndarray, affine: np.ndarray | None) -> N
     nib.save(img, str(path))
 
 
-def _save_qc_png(path: Path, image_xyz: np.ndarray, mask_xyz: np.ndarray, title: str) -> None:
-    import matplotlib
+def _save_qc_images(
+    qc_dir: Path,
+    image_xyz: np.ndarray,
+    mask_xyz: np.ndarray,
+    title: str,
+    true_mask_xyz: np.ndarray | None = None,
+) -> Path:
+    """Save per-slice QC PNGs for the full scan into *qc_dir*.
 
+    For every axial slice in the foreground bounding-box Z range one PNG is
+    written (``slice_NNN.png``).  Each PNG has up to 4 columns:
+
+      0: CT image (gray-scale)
+      1: CT + Ground-truth overlay  – **cyan**      (only when GT is provided)
+      2: CT + Prediction overlay    – **magenta**
+      3: Segmentation comparison    – TP=lime, FP=tomato, FN=blue
+                                      (only when GT is provided)
+
+    A 10-slice ``summary.png`` mosaic is also saved for a quick overview.
+
+    Returns the path to ``summary.png``.
+    """
+    import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
-    path.parent.mkdir(parents=True, exist_ok=True)
+    qc_dir.mkdir(parents=True, exist_ok=True)
 
-    z_mid = image_xyz.shape[2] // 2
-    z_max = int(np.argmax(mask_xyz.sum(axis=(0, 1)))) if mask_xyz.sum() > 0 else z_mid
+    z_total = image_xyz.shape[2]
+    has_gt  = true_mask_xyz is not None
 
-    def _plot(ax, z: int, name: str):
-        img2d = image_xyz[:, :, z]
-        m2d = mask_xyz[:, :, z]
-        ax.imshow(img2d.T, cmap="gray", origin="lower")
-        ax.imshow(np.ma.masked_where(m2d.T == 0, m2d.T), cmap="autumn", alpha=0.5, origin="lower")
-        ax.set_title(f"{name} z={z}")
-        ax.axis("off")
+    # Foreground bounding box in Z (union of GT + pred).
+    fg_any = mask_xyz.sum(axis=(0, 1))
+    if has_gt:
+        fg_any = fg_any + true_mask_xyz.sum(axis=(0, 1))
+    fg_zs = np.where(fg_any > 0)[0]
+    z_lo = int(fg_zs[0])  if len(fg_zs) >= 2 else 0
+    z_hi = int(fg_zs[-1]) if len(fg_zs) >= 2 else z_total - 1
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    fig.suptitle(title)
-    _plot(axes[0], z_mid, "mid")
-    _plot(axes[1], z_max, "max-mask")
-    fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-    fig.savefig(str(path), dpi=150)
+    # Layout: 4 columns with GT, 2 without.
+    n_cols = 4 if has_gt else 2
+    col_titles = (
+        ["CT", "Ground Truth (cyan)", "Prediction (magenta)",
+         "Comparison  (lime=TP · red=FP · blue=FN)"]
+        if has_gt else ["CT", "Prediction (magenta)"]
+    )
+
+    # RGBA colours (R, G, B, A) — values in [0, 1].
+    _CYAN    = (0.00, 1.00, 1.00, 0.50)
+    _MAGENTA = (1.00, 0.00, 1.00, 0.50)
+    _LIME    = (0.15, 0.95, 0.15, 0.60)
+    _TOMATO  = (1.00, 0.20, 0.10, 0.60)
+    _BLUE    = (0.10, 0.40, 1.00, 0.60)
+
+    def _rgba(mask2d: np.ndarray, color: tuple) -> np.ndarray:
+        out = np.zeros((*mask2d.shape, 4), dtype=np.float32)
+        out[mask2d > 0] = color
+        return out
+
+    def _comparison_rgba(gt2d: np.ndarray, pred2d: np.ndarray) -> np.ndarray:
+        out = np.zeros((*gt2d.shape, 4), dtype=np.float32)
+        out[(gt2d > 0) & (pred2d > 0)]  = _LIME    # TP
+        out[(gt2d == 0) & (pred2d > 0)] = _TOMATO  # FP
+        out[(gt2d > 0) & (pred2d == 0)] = _BLUE    # FN
+        return out
+
+    _legend_patches = (
+        [
+            Patch(facecolor=_CYAN[:3],    label="Ground truth"),
+            Patch(facecolor=_MAGENTA[:3], label="Prediction"),
+            Patch(facecolor=_LIME[:3],    label="TP"),
+            Patch(facecolor=_TOMATO[:3],  label="FP (over-seg)"),
+            Patch(facecolor=_BLUE[:3],    label="FN (missed)"),
+        ]
+        if has_gt else [Patch(facecolor=_MAGENTA[:3], label="Prediction")]
+    )
+
+    def _render_row(axes_row, z: int, show_col_titles: bool = False) -> None:
+        img2d  = image_xyz[:, :, z].T
+        pred2d = mask_xyz[:, :, z].T
+        gt2d   = true_mask_xyz[:, :, z].T if has_gt else None
+
+        vmin = float(np.percentile(img2d, 1))
+        vmax = float(np.percentile(img2d, 99))
+        kw   = dict(origin="lower", interpolation="none")
+
+        col = 0
+        # CT
+        axes_row[col].imshow(img2d, cmap="gray", vmin=vmin, vmax=vmax, **kw)
+        axes_row[col].set_ylabel(f"z={z}", fontsize=7)
+        axes_row[col].axis("off")
+        if show_col_titles:
+            axes_row[col].set_title(col_titles[col], fontsize=9, pad=4)
+        col += 1
+
+        # GT overlay (cyan)
+        if has_gt:
+            axes_row[col].imshow(img2d, cmap="gray", vmin=vmin, vmax=vmax, **kw)
+            axes_row[col].imshow(_rgba(gt2d, _CYAN), **kw)
+            axes_row[col].axis("off")
+            if show_col_titles:
+                axes_row[col].set_title(col_titles[col], fontsize=9, pad=4)
+            col += 1
+
+        # Prediction overlay (magenta)
+        axes_row[col].imshow(img2d, cmap="gray", vmin=vmin, vmax=vmax, **kw)
+        axes_row[col].imshow(_rgba(pred2d, _MAGENTA), **kw)
+        axes_row[col].axis("off")
+        if show_col_titles:
+            axes_row[col].set_title(col_titles[col], fontsize=9, pad=4)
+        col += 1
+
+        # Comparison panel (TP/FP/FN)
+        if has_gt:
+            axes_row[col].imshow(img2d, cmap="gray", vmin=vmin, vmax=vmax, **kw)
+            axes_row[col].imshow(_comparison_rgba(gt2d, pred2d), **kw)
+            axes_row[col].axis("off")
+            if show_col_titles:
+                axes_row[col].set_title(col_titles[col], fontsize=9, pad=4)
+
+    # --- One PNG per slice across the foreground Z range ---
+    for z in range(z_lo, z_hi + 1):
+        if has_gt:
+            # 4 panels → 2×2 grid
+            fig, axes = plt.subplots(2, 2, figsize=(8, 8), squeeze=False)
+            _render_row(axes.flatten(), z, show_col_titles=True)
+            fig.legend(handles=_legend_patches, loc="lower center", ncol=5,
+                       fontsize=8, framealpha=0.85, bbox_to_anchor=(0.5, -0.04))
+        else:
+            # 2 panels → 1×2 row
+            fig, axes = plt.subplots(1, 2, figsize=(8, 4), squeeze=False)
+            _render_row(axes[0], z, show_col_titles=True)
+        fig.suptitle(f"{title}  |  z = {z} / {z_total - 1}", fontsize=11, y=1.01)
+        fig.tight_layout()
+        fig.savefig(str(qc_dir / f"slice_{z:03d}.png"), dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    # --- Summary mosaic: 10 evenly-spaced representative slices ---
+    n_rows = min(10, z_hi - z_lo + 1)
+    summary_zs = np.linspace(z_lo, z_hi, n_rows, dtype=int).tolist()
+    fig, axes = plt.subplots(n_rows, n_cols,
+                             figsize=(n_cols * 3, n_rows * 3),
+                             squeeze=False)
+    fig.suptitle(
+        f"{title}  [summary — {n_rows} of {z_hi - z_lo + 1} foreground slices]",
+        fontsize=12, y=1.002,
+    )
+    for row_i, z in enumerate(summary_zs):
+        _render_row(axes[row_i], z, show_col_titles=(row_i == 0))
+    if has_gt:
+        fig.legend(handles=_legend_patches, loc="lower center", ncol=5,
+                   fontsize=9, framealpha=0.85, bbox_to_anchor=(0.5, -0.01))
+    fig.tight_layout(rect=[0, 0.02 if has_gt else 0, 1, 1])
+    summary_path = qc_dir / "summary.png"
+    fig.savefig(str(summary_path), dpi=150, bbox_inches="tight")
     plt.close(fig)
+
+    return summary_path
 
 
 def main() -> None:
@@ -355,8 +488,14 @@ def main() -> None:
         image_nii = out_dir / f"{args.name}_image_preproc.nii.gz"
         _save_nifti(image_nii, vol.astype(np.float32, copy=False), affine=affine)
 
-    qc_png = out_dir / f"{args.name}_qc.png"
-    _save_qc_png(qc_png, image_xyz=vol, mask_xyz=mask, title=f"{args.name} | thr={args.threshold}")
+    qc_dir = out_dir / f"{args.name}_qc"
+    summary_png = _save_qc_images(
+        qc_dir,
+        image_xyz=vol,
+        mask_xyz=mask,
+        title=f"{args.name} | thr={args.threshold}",
+        true_mask_xyz=true_mask,
+    )
 
     summary: dict[str, Any] = {
         "image": str(args.image),
@@ -369,7 +508,8 @@ def main() -> None:
         "preprocess": asdict(cfg),
         "pred_mask": str(pred_nii),
         "image_preproc": str(image_nii) if image_nii is not None else None,
-        "qc_png": str(qc_png),
+        "qc_dir": str(qc_dir),
+        "qc_summary": str(summary_png),
         "mask_sum": int(mask.sum()),
     }
 
@@ -384,8 +524,9 @@ def main() -> None:
 
     print("Inference done")
     print(f"  backend: {summary['backend']}")
-    print(f"  pred: {pred_nii.resolve()}")
-    print(f"  qc:   {qc_png.resolve()}")
+    print(f"  pred:    {pred_nii.resolve()}")
+    print(f"  qc_dir:  {qc_dir.resolve()}")
+    print(f"  summary: {summary_png.resolve()}")
     print(f"  mask_sum: {summary['mask_sum']}")
     print(f"  mode: {mode}")
     if "dice_preproc_fullres" in summary:
